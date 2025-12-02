@@ -47,40 +47,36 @@ def manage_woreda_kebele_page():
     db = SessionLocal()
     st.title("🗂️ Manage Woredas & Kebeles")
 
-    col1, col2 = st.columns(2)
+    # Initialize session state for editing
+    if 'edit_woreda_id' not in st.session_state:
+        st.session_state.edit_woreda_id = None
+    if 'edit_kebele_id' not in st.session_state:
+        st.session_state.edit_kebele_id = None
 
-    with col1:
-        st.header("Add New Woreda")
-        woreda_name = st.text_input("Woreda Name")
-        if st.button("Save Woreda"):
-            if woreda_name:
-                db.add(Woreda(name=woreda_name))
-                db.commit()
-                st.success(f"Woreda '{woreda_name}' saved")
-                st.rerun()
-            else:
-                st.warning("Woreda name cannot be empty.")
+    # --- ADD WOREDA / KEBELE SECTION ---
+    with st.expander("➕ Add New Woreda or Kebele", expanded=False):
+        col1_add, col2_add = st.columns(2)
+        with col1_add:
+            st.subheader("Add New Woreda")
+            new_woreda_name_input = st.text_input("New Woreda Name", key="new_woreda_name_input")
+            if st.button("Save New Woreda"):
+                if new_woreda_name_input:
+                    db.add(Woreda(name=new_woreda_name_input))
+                    db.commit()
+                    st.success(f"Woreda '{new_woreda_name_input}' saved")
+                    st.rerun()
+                else:
+                    st.warning("Woreda name cannot be empty.")
 
-    with col2:
-        st.header("Add Kebeles to Woreda")
-        woredas = db.query(Woreda).all()
-        if woredas:
-            woreda_select = st.selectbox("Select Woreda", [w.name for w in woredas])
-
-            if woreda_select:
-                selected_woreda = db.query(Woreda).filter(Woreda.name == woreda_select).first()
-                with st.expander(f"View existing Kebeles in {woreda_select}"):
-                    kebeles = selected_woreda.kebeles
-                    if kebeles:
-                        for kebele in kebeles:
-                            st.write(f"- {kebele.name}")
-                    else:
-                        st.info("No Kebeles found for this Woreda.")
-
-                kebele_names = st.text_area("Add New Kebeles (one per line)")
-                if st.button("Save Kebeles"):
-                    w = db.query(Woreda).filter(Woreda.name == woreda_select).first()
-                    if kebele_names:
+        with col2_add:
+            st.subheader("Add Kebeles to Woreda")
+            woredas_for_add = db.query(Woreda).all()
+            if woredas_for_add:
+                woreda_select_add = st.selectbox("Select Woreda to add Kebeles", [w.name for w in woredas_for_add], key="woreda_select_add")
+                kebele_names = st.text_area("Add New Kebeles (one per line)", key="add_kebeles_text_area")
+                if st.button("Save New Kebeles"):
+                    w = db.query(Woreda).filter(Woreda.name == woreda_select_add).first()
+                    if kebele_names and w:
                         for kebele_name in kebele_names.split('\n'):
                             if kebele_name.strip():
                                 db.add(Kebele(name=kebele_name.strip(), woreda_id=w.id))
@@ -88,9 +84,96 @@ def manage_woreda_kebele_page():
                         st.success("Kebeles saved")
                         st.rerun()
                     else:
-                        st.warning("Kebele names cannot be empty.")
-        else:
-            st.warning("No Woredas found. Please add a Woreda first.")
+                        st.warning("Kebele names cannot be empty or Woreda not selected.")
+            else:
+                st.warning("No Woredas found. Please add a Woreda first.")
+    
+    st.divider()
+
+    # --- EDIT FORMS (only one can be open at a time) ---
+    if st.session_state.edit_woreda_id:
+        woreda_to_edit = db.query(Woreda).filter(Woreda.id == st.session_state.edit_woreda_id).first()
+        if woreda_to_edit:
+            with st.form(key=f"edit_woreda_form_{woreda_to_edit.id}"):
+                st.subheader(f"Edit Woreda: {woreda_to_edit.name}")
+                new_woreda_name_edit = st.text_input("Woreda Name", value=woreda_to_edit.name)
+                save_woreda, cancel_woreda = st.columns(2)
+                if save_woreda.form_submit_button("Save Changes"):
+                    woreda_to_edit.name = new_woreda_name_edit
+                    db.commit()
+                    st.success("Woreda updated!")
+                    st.session_state.edit_woreda_id = None
+                    st.rerun()
+                if cancel_woreda.form_submit_button("Cancel"):
+                    st.session_state.edit_woreda_id = None
+                    st.rerun()
+    elif st.session_state.edit_kebele_id:
+        kebele_to_edit = db.query(Kebele).filter(Kebele.id == st.session_state.edit_kebele_id).first()
+        if kebele_to_edit:
+            with st.form(key=f"edit_kebele_form_{kebele_to_edit.id}"):
+                st.subheader(f"Edit Kebele: {kebele_to_edit.name}")
+                new_kebele_name_edit = st.text_input("Kebele Name", value=kebele_to_edit.name)
+                all_woredas = db.query(Woreda).all()
+                all_woreda_names = [w.name for w in all_woredas]
+                current_woreda_index = all_woreda_names.index(kebele_to_edit.woreda.name)
+                selected_new_woreda_name = st.selectbox("Assign to Woreda", all_woreda_names, index=current_woreda_index)
+                save_kebele, cancel_kebele = st.columns(2)
+                if save_kebele.form_submit_button("Save Changes"):
+                    kebele_to_edit.name = new_kebele_name_edit
+                    new_parent_woreda = db.query(Woreda).filter(Woreda.name == selected_new_woreda_name).first()
+                    kebele_to_edit.woreda_id = new_parent_woreda.id
+                    db.commit()
+                    st.success("Kebele updated!")
+                    st.session_state.edit_kebele_id = None
+                    st.rerun()
+                if cancel_kebele.form_submit_button("Cancel"):
+                    st.session_state.edit_kebele_id = None
+                    st.rerun()
+
+    # --- TABLE DISPLAY ---
+    st.header("Existing Woredas and Kebeles")
+    header_cols = st.columns([4, 2, 1, 1])
+    header_cols[0].markdown("**Name**")
+    header_cols[1].markdown("**Type**")
+    header_cols[2].markdown("**Edit**")
+    header_cols[3].markdown("**Delete**")
+    st.divider()
+
+    woredas_list = db.query(Woreda).order_by(Woreda.name).all()
+    if not woredas_list:
+        st.info("No Woredas or Kebeles found. Use the 'Add' section above to create them.")
+
+    for woreda in woredas_list:
+        # Woreda Row
+        woreda_cols = st.columns([4, 2, 1, 1])
+        woreda_cols[0].markdown(f"**{woreda.name}**")
+        woreda_cols[1].markdown("*Woreda*")
+        if woreda_cols[2].button("✏️", key=f"edit_woreda_{woreda.id}"):
+            st.session_state.edit_woreda_id = woreda.id
+            st.session_state.edit_kebele_id = None
+            st.rerun()
+        if woreda_cols[3].button("🗑️", key=f"delete_woreda_{woreda.id}"):
+            # Add confirmation later
+            for kebele in woreda.kebeles:
+                db.delete(kebele)
+            db.delete(woreda)
+            db.commit()
+            st.rerun()
+
+        # Kebele Rows
+        for kebele in sorted(woreda.kebeles, key=lambda k: k.name):
+            kebele_cols = st.columns([4, 2, 1, 1])
+            kebele_cols[0].markdown(f"&nbsp;&nbsp;&nbsp;- {kebele.name}")
+            kebele_cols[1].markdown("*Kebele*")
+            if kebele_cols[2].button("✏️", key=f"edit_kebele_{kebele.id}"):
+                st.session_state.edit_kebele_id = kebele.id
+                st.session_state.edit_woreda_id = None
+                st.rerun()
+            if kebele_cols[3].button("🗑️", key=f"delete_kebele_{kebele.id}"):
+                db.delete(kebele)
+                db.commit()
+                st.rerun()
+        st.divider()
 
 def register_farmer_page():
     db = SessionLocal()
@@ -226,42 +309,110 @@ def view_farmers_page():
     st.title("🧑‍🌾 Registered Farmers")
 
     db = SessionLocal()
-    farmers_query = db.query(Farmer)
 
+    # Initialize session state for editing
+    if 'edit_farmer_id' not in st.session_state:
+        st.session_state.edit_farmer_id = None
+
+    # --- FILTERING ---
     st.sidebar.header("Filter Farmers")
     woredas = db.query(Woreda).all()
     woreda_names = ["All"] + [w.name for w in woredas]
     selected_woreda = st.sidebar.selectbox("Filter by Woreda", woreda_names)
 
+    farmers_query = db.query(Farmer)
     if selected_woreda != "All":
         farmers_query = farmers_query.filter(Farmer.woreda == selected_woreda)
 
-    farmers = farmers_query.all()
+    farmers = farmers_query.order_by(Farmer.timestamp.desc()).all()
 
-    if farmers:
-        data = []
-        for farmer in farmers:
-            data.append({
-                "Name": farmer.name,
-                "Phone": farmer.phone,
-                "Woreda": farmer.woreda,
-                "Kebele": farmer.kebele,
-                "Registered By": farmer.registered_by,
-                "Registration Date": farmer.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-            })
-        df = pd.DataFrame(data)
+    # --- DISPLAY FARMERS ---
+    if not farmers:
+        st.info("No farmers registered yet or match the current filter.")
+        return
+
+    # --- EDIT FORM ---
+    if st.session_state.edit_farmer_id:
+        farmer_to_edit = db.query(Farmer).filter(Farmer.id == st.session_state.edit_farmer_id).first()
+        if farmer_to_edit:
+            with st.form(key=f"edit_form_{farmer_to_edit.id}"):
+                st.subheader(f"Editing Farmer: {farmer_to_edit.name}")
+                new_name = st.text_input("Name", value=farmer_to_edit.name)
+                new_phone = st.text_input("Phone", value=farmer_to_edit.phone)
+                
+                # Woreda and Kebele dropdowns
+                woredas_list = db.query(Woreda).all()
+                woreda_names_list = [w.name for w in woredas_list]
+                selected_woreda_index = woreda_names_list.index(farmer_to_edit.woreda) if farmer_to_edit.woreda in woreda_names_list else 0
+                new_woreda_name = st.selectbox("Woreda", woreda_names_list, index=selected_woreda_index)
+
+                kebeles_list = db.query(Kebele).join(Woreda).filter(Woreda.name == new_woreda_name).all()
+                kebele_names_list = [k.name for k in kebeles_list]
+                selected_kebele_index = kebele_names_list.index(farmer_to_edit.kebele) if farmer_to_edit.kebele in kebele_names_list else 0
+                new_kebele_name = st.selectbox("Kebele", kebele_names_list, index=selected_kebele_index)
+
+                submitted = st.form_submit_button("Save Changes")
+                if submitted:
+                    farmer_to_edit.name = new_name
+                    farmer_to_edit.phone = new_phone
+                    farmer_to_edit.woreda = new_woreda_name
+                    farmer_to_edit.kebele = new_kebele_name
+                    db.commit()
+                    st.success("Farmer details updated!")
+                    st.session_state.edit_farmer_id = None
+                    st.rerun()
+            if st.button("Cancel Edit"):
+                st.session_state.edit_farmer_id = None
+                st.rerun()
+            st.divider()
+
+
+    # --- FARMER LIST ---
+    st.subheader("All Registered Farmers")
+
+    # Header
+    header_cols = st.columns([1, 2, 2, 2, 2, 2, 1, 1])
+    headers = ["ID", "Name", "Phone", "Woreda", "Kebele", "Registered By", "Edit", "Delete"]
+    for col, header in zip(header_cols, headers):
+        col.markdown(f"**{header}**")
+    
+    st.divider()
+
+    for farmer in farmers:
+        row_cols = st.columns([1, 2, 2, 2, 2, 2, 1, 1])
+        row_cols[0].write(farmer.id)
+        row_cols[1].write(farmer.name)
+        row_cols[2].write(farmer.phone)
+        row_cols[3].write(farmer.woreda)
+        row_cols[4].write(farmer.kebele)
+        row_cols[5].write(farmer.registered_by)
         
-        st.dataframe(df, use_container_width=True)
+        with row_cols[6]:
+            if st.button("✏️", key=f"edit_{farmer.id}"):
+                st.session_state.edit_farmer_id = farmer.id
+                st.rerun()
 
+        with row_cols[7]:
+            if st.button("🗑️", key=f"delete_{farmer.id}"):
+                db.delete(farmer)
+                db.commit()
+                st.rerun()
+        st.divider()
+    
+    # --- DOWNLOAD BUTTON ---
+    if farmers:
+        data = [{
+            "Name": f.name, "Phone": f.phone, "Woreda": f.woreda, "Kebele": f.kebele,
+            "Registered By": f.registered_by, "Registration Date": f.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        } for f in farmers]
+        df = pd.DataFrame(data)
         csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button(
+        st.sidebar.download_button(
             label="Download as CSV",
             data=csv,
             file_name='farmer_registrations.csv',
             mime='text/csv',
         )
-    else:
-        st.info("No farmers registered yet or match the current filter.")
 
 def main():
     if "logged_in" not in st.session_state or not st.session_state["logged_in"]:

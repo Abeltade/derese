@@ -17,7 +17,16 @@ def register_user(username, password):
     db.commit()
 
 def login_user(username, password):
+    print(f"Attempting login for user: {username}")
+    print(f"Password received: '{password}'")
+    print(f"Repr of password: {repr(password)}")
     user = get_user(username)
     if not user:
+        print("User not found.")
         return False
-    return bcrypt.checkpw(password.encode(), user.password.encode())
+    
+    print(f"User found. Stored hash: {user.password}")
+    password_match = bcrypt.checkpw(password.encode(), user.password.encode())
+    print(f"Password match result: {password_match}")
+    
+    return password_match
